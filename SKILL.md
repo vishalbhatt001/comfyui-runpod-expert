@@ -17,7 +17,7 @@ A living record of hard-won, verified facts from building four production pipeli
 
 Why this matters more than it sounds: a wrong node name or input key doesn't fail gracefully — it either gets silently rejected by ComfyUI (400 error, cheap) or, worse, gets *accepted* with wrong values and burns real GPU-minutes producing garbage before you notice (expensive). Every model integration below was built by fetching source first, and it caught real gotchas every single time (see §4).
 
-Fast way to do this: launch a research agent/fork with WebFetch access, point it at the exact GitHub raw URL, and ask it to quote the actual class definition (inputs, outputs, defaults) rather than summarize. Don't trust a secondary blog's paraphrase of a node's parameters.
+Fast way to do this: launch a research agent/fork with WebFetch access, point it at the exact GitHub raw URL, and ask it to quote the actual class definition (inputs, outputs, defaults) rather than summarize. Don't trust a secondary blog's paraphrase of a node's parameters. If Comfy Org's own `comfy-cloud` plugin tools (`search_nodes`, `get_node`) are available in a session, they're a faster, equally authoritative alternative to manual source-fetching — see §8.
 
 ---
 
@@ -78,7 +78,10 @@ GitHub Actions + GHCR, no Docker Hub account needed: `docker/login-action` again
 ## 4. Verified model integrations
 
 ### MiniMax H3 (video + audio, joint generation)
-- Files (Comfy-Org repackaged): diffusion model `minimax_h3_fl2va_pruned_int8_convrot.safetensors` (~19.5GB), text encoder `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (~15.7GB), video VAE + audio VAE (~5GB combined). Total ~40GB — needs an **80GB GPU** (A100), no smaller tier is viable.
+- Files (Comfy-Org repackaged): diffusion model `minimax_h3_fl2va_pruned_int8_convrot.safetensors` (~19.5GB), text encoder `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (~15.7GB), video VAE + audio VAE (~5GB combined). Total ~40GB.
+- **Correction (per Comfy Org's own official docs, 2026-08 — see §8): 80GB is not actually required.** I only empirically confirmed an 80GB A100 works; I never tested smaller and wrongly generalized "no smaller tier is viable." Comfy Org's own tested comfortable range is **a 30-series-or-newer GPU with 16GB+ VRAM**, using ComfyUI's dynamic VRAM offloading (not everything needs to fit in VRAM simultaneously — weights can be staged from system RAM as needed). Reference: ~9 min for 5s/480p on an RTX 3060, ~15 min for 5s on a 16GB card. Slower on a small card, but not impossible — and **generation time scales exponentially with pixel count, not linearly**, so re-estimate for the actual resolution wanted rather than scaling a 480p number linearly to 720p. Next time this model comes up, try a cheap 16-24GB tier first (e.g. RTX 4090, ~$0.34/hr) instead of defaulting to an 80GB A100 (~$1.19-1.39/hr) — the earlier conclusion was overcautious, not verified.
+- Frame/duration grid confirmed independently by Comfy Org's docs too: 17k+5 frames at 24fps, up to ~15s max — matches what was found directly in ComfyUI's own MiniMax H3 node originally.
+- Two distinct routes exist on Comfy Cloud under the same display title ("MiniMax H3: Text to Video"): OSS weights (`video_minimax_h3_*` internal name — what this skill covers) vs. a paid partner/API node (`api_minimax_h3_*`). Not relevant to a RunPod deployment, but useful context so a `search_nodes`-style result naming "MiniMax H3" isn't assumed to be the OSS route without checking the internal name/category.
 - Native ComfyUI node: `MiniMaxH3ImageToVideo` — `first_frame` input is **optional**; omitting it gives pure text-to-video on the exact same node (no separate T2V node needed). Also `MiniMaxH3SigmaShift` (shift_video/shift_audio on the model), standard `KSamplerSelect`/`BasicScheduler`/`BasicGuider`/`SamplerCustomAdvanced` chain, `VAEDecodeAudio`+`VAEDecode`+`CreateVideo`(fps)+`SaveVideo`.
 - Requires the custom Docker build in §3 (this is *the* model that needed it — `comfy-kitchen`+triton for int8/nvfp4 quantized ops).
 - Does **not** run on Apple Silicon at all: MPS backend lacks the `_int_mm` op the quantized kernels need (`PYTORCH_ENABLE_MPS_FALLBACK=1` "fixes" it by falling back to CPU, which is catastrophically slow for a model this size — don't bother).
@@ -145,6 +148,18 @@ GitHub Actions + GHCR, no Docker Hub account needed: `docker/login-action` again
 - **ffmpeg concat should re-encode, not stream-copy**, when the input clips came from separate render calls (different ComfyUI jobs) — guarantees one consistent codec/timebase before a final mux, avoiding subtle A/V sync issues a `-c copy` concat can hit across heterogeneous sources.
 - **Every project gets the same doc pair**: `README.md` (run instructions, deployment steps) + `docs/INTERNALS.md` (tech stack, file-by-file, a Mermaid pipeline diagram that renders natively on GitHub) + `docs/internals.html` (the same content as a designed standalone artifact, for a nicer read outside GitHub's rendering). This consistency makes every project's documentation predictable to navigate.
 - **Test what you can without a live pod before spending money on one.** Every workflow-graph builder and text parser in these projects was unit-tested locally against realistic sample data (confirms JSON-serializability and correct parsing logic) before ever being pointed at a real pod — catches a whole class of bugs for $0.
+
+---
+
+## 8. Comfy Org's official tools — a complementary verification path
+
+Comfy Org publishes their own Claude Code plugin: `github.com/Comfy-Org/comfy-skills/tree/main/claude-code` (plugin name `comfy-cloud`). Important distinction before using anything from it: **this connects to `cloud.comfy.org` — Comfy Org's own hosted/managed GPU service, a different product from self-hosting ComfyUI on a RunPod pod (what every project in this skill actually does).** Installing it doesn't change how RunPod deployment works; don't conflate "generate via Comfy Cloud" with "deploy to RunPod."
+
+What it's genuinely useful for regardless of which infrastructure you deploy to: its MCP server exposes `search_nodes`, `search_models`, and `search_templates` tools, backed by Comfy Org's own live catalog — a faster, more authoritative alternative to manually fetching and reading ComfyUI source files (§1's rule) *when this plugin is installed*. `search_nodes` returns a node's exact inputs/outputs/category/pack; `search_templates` finds official pre-built workflow JSONs (the same kind of thing manually located via GitHub search throughout this skill so far). If this plugin is available in a future session, prefer it over a research agent fetching raw GitHub source for verifying a node's schema — same rigor, less manual work.
+
+Its bundled command docs also carry genuinely useful, dated domain knowledge worth treating as a periodically-refreshed source, not a permanent one (their own docs say as much: *"model facts change over time... confirm current details rather than assuming they still hold"* — a good practice to apply to this whole skill file too, not just their content). Two concrete corrections this source produced for this skill:
+- The MiniMax H3 VRAM correction in §4 above (80GB is not actually required — that was this skill's own overcautious generalization from one successful data point, not a verified floor).
+- The general principle that video-diffusion generation time scales **exponentially with pixel count, not linearly** — factor this into any cost/time extrapolation across resolutions (§5), not just linear scaling by frame count.
 
 ---
 
