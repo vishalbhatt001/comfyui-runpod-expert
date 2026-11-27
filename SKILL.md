@@ -47,6 +47,9 @@ If your Docker image bakes the app/ComfyUI under `/workspace` (a common pattern)
 ### RunPod's official ComfyUI template exists and is often the right call
 Template IDs on this account: `cw3nka7d08` ("ComfyUI - CUDA 12.8"), `2lv7ev3wfp` ("ComfyUI - CUDA 13") — both expose port `8188/http` by default. If a model ships **natively** in ComfyUI (no custom quantization stack, no exotic compiler/torch-version requirement), there's no reason to build a custom Docker image — deploy from this template and just download the model weights on first boot. Reserve a custom image (see §3) for models that genuinely need a non-stock dependency stack (MiniMax H3's `comfy-kitchen`/triton stack did; Wan 2.2 and ACE-Step's stock fp16/bf16 nodes don't).
 
+### "CUDA unknown error" on boot = host driver too old for the image (filter by CUDA version)
+Seen twice in a row (2026-11-27) on Community RTX 4090s with the official `runpod/comfyui:...-cuda12.8` template: ComfyUI exits at startup with `RuntimeError: CUDA unknown error ... Setting the available devices to be zero`, while JupyterLab stays up. Two different machines failing identically means it's not one bad GPU -- the host driver predates the image's CUDA 12.8. Fix: pass `allowedCudaVersions: ["12.8", "12.9", "13.0"]` in `podFindAndDeployOnDemand` (field confirmed accepted by GraphQL validation). Also: always arm a "ComfyUI must answer `/system_stats` within ~15 min or terminate" check after deploying, so a bad boot costs cents, not hours.
+
 ### SSH port vs. web terminal
 Exposing TCP port 22 on a pod does **not** mean SSH works unless the image actually runs an sshd (most custom images don't, and won't unless you add one). For live debugging inside a running pod, use RunPod's own browser-based **web terminal**, not an SSH client pointed at the exposed port.
 
