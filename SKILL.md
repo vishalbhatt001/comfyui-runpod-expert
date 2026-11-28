@@ -93,6 +93,8 @@ GitHub Actions + GHCR, no Docker Hub account needed: `docker/login-action` again
 - Requires the custom Docker build in §3 (this is *the* model that needed it — `comfy-kitchen`+triton for int8/nvfp4 quantized ops).
 - Does **not** run on Apple Silicon at all: MPS backend lacks the `_int_mm` op the quantized kernels need (`PYTORCH_ENABLE_MPS_FALLBACK=1` "fixes" it by falling back to CPU, which is catastrophically slow for a model this size — don't bother).
 
+- **`SaveVideo.codec` is a plain COMBO string (`"auto"`) in the runpod/comfyui 0.30.0 image -- NOT `{"codec": "auto"}`.** The dict form passed `/prompt` validation, ran the full 12-min Wan generation, then crashed at save (`SaveVideo.execute() missing 1 required positional argument: 'codec'`), wasting the whole render (2026-11-28). Lesson: run a schema preflight against the live `/object_info` (every required input present, every COMBO value in its options) before submitting -- `/prompt` validation alone did not catch this.
+
 ### Wan 2.2 (video only, no audio)
 - **5B (TI2V) variant**: single diffusion model + text encoder + VAE. Only needs **~6-8GB VRAM/unified memory** — the one model in this whole body of work that genuinely fits comfortably on a 24GB Mac's memory budget (speed is a separate question, see §6).
 - **14B (MoE) variant**: ~27B total across two 14B experts, selectively activated. VRAM ranges from ~8GB (GGUF-quantized, T5 offloaded to CPU) to ~54-65GB (full FP16 pipeline) depending on quantization.
